@@ -22,4 +22,5 @@ jobs:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_OPEN_ID: ${{ secrets.FEISHU_OPEN_ID }}
+          NSDK_TITLE: "纳指基金估值-盘前"
         run: python scripts/fetch_and_notify.py

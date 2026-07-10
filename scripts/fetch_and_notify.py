@@ -51,9 +51,13 @@ def format_message(data):
     desc = data.get("description", "")
 
     # Mode label
-    mode_label = {"intraday": "盘中", "pre-market": "盘前", "last-intraday": "昨收基准"}.get(mode, mode)
+    mode_label = {"intraday": "盘中", "pre-market": "盘前", "last-intraday": "昨收"}.get(mode, mode)
+    # Allow override title via env
+    title = os.environ.get("NSDK_TITLE", "")
+    if not title:
+        title = f"纳指基金估值-{mode_label}"
 
-    lines = [f"📊 纳指基金估值 | {mode_label}", f"⏰ {ts}", ""]
+    lines = [f"📊 {title}", f"⏰ {ts}", ""]
 
     # Indexes
     indexes = data.get("indexes", [])

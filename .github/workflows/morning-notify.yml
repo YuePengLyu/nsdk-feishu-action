@@ -23,4 +23,5 @@ jobs:
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_OPEN_ID: ${{ secrets.FEISHU_OPEN_ID }}
           NSDK_API_MODE: last-intraday
+          NSDK_TITLE: "纳指基金估值-昨收"
         run: python scripts/fetch_and_notify.py
