@@ -1,0 +1,3 @@
+name: nsdk-feishu-action
+version: 1.0.0
+description: Fetch nsdk.top fund valuation data and push to Feishu daily

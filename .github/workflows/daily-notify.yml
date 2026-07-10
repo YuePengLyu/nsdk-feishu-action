@@ -1,0 +1,25 @@
+name: Daily NSDK Valuation to Feishu
+
+on:
+  schedule:
+    # 每天北京时间 8:30 = UTC 0:30
+    - cron: '30 0 * * *'
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  fetch-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run fetch script
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_OPEN_ID: ${{ secrets.FEISHU_OPEN_ID }}
+        run: python scripts/fetch_and_notify.py
