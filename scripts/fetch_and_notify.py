@@ -17,14 +17,19 @@ from datetime import datetime, timezone, timedelta
 
 
 NSDK_API = "https://nsdk.top/api/pre-market"
+NSDK_API_LAST = "https://nsdk.top/api/last-intraday"
 FEISHU_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 FEISHU_MSG_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
 
 
 def fetch_nsdk_data():
     """Fetch valuation data from nsdk.top API."""
-    # Try pre-market first, then last-intraday as fallback
-    for endpoint in [NSDK_API, "https://nsdk.top/api/last-intraday"]:
+    mode = os.environ.get("NSDK_API_MODE", "pre-market")
+    if mode == "last-intraday":
+        endpoints = [NSDK_API_LAST, NSDK_API]
+    else:
+        endpoints = [NSDK_API, NSDK_API_LAST]
+    for endpoint in endpoints:
         try:
             req = urllib.request.Request(endpoint, headers={"User-Agent": "nsdk-feishu-action/1.0"})
             with urllib.request.urlopen(req, timeout=15) as resp:
