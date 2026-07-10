@@ -2,8 +2,8 @@ name: Daily NSDK Valuation to Feishu
 
 on:
   schedule:
-    # 每天北京时间 8:30 = UTC 0:30
-    - cron: '30 0 * * *'
+    # 周一到周五北京时间 14:30 = UTC 6:30
+    - cron: '30 6 * * 1-5'
   workflow_dispatch: # 支持手动触发
 
 jobs:
