@@ -1,0 +1,25 @@
+name: Nasdaq Sentiment Dashboard to Feishu
+
+on:
+  schedule:
+    # 周一到周五北京时间 9:00 = UTC 1:00
+    - cron: '0 1 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  sentiment-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run sentiment dashboard script
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_OPEN_ID: ${{ secrets.FEISHU_OPEN_ID }}
+        run: python scripts/sentiment_dashboard.py
