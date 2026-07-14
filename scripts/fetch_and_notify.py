@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fetch nsdk.top fund valuation data and send to Feishu.
+Fetch nsdk.top fund valuation data and send to Feishu via interactive card.
 
 Environment variables:
   FEISHU_APP_ID     - Feishu app ID
@@ -23,15 +23,6 @@ NSDK_API_LAST = "https://nsdk.top/api/last-intraday"
 FEISHU_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 FEISHU_MSG_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
 
-# Colors: red for up (A股惯例), green for down
-COLOR_RED = "red"
-COLOR_GREEN = "green"
-COLOR_DEFAULT = "black"
-
-# Arrows matching colors
-ARROW_UP = "🔴"    # red circle = 涨
-ARROW_DOWN = "🟢"  # green circle = 跌
-
 
 def fetch_nsdk_data():
     """Fetch valuation data from nsdk.top API."""
@@ -52,26 +43,17 @@ def fetch_nsdk_data():
     return None
 
 
-def change_color(pct):
-    """Return color based on change percent: red for up, green for down (A股惯例)."""
+def colored(pct, text):
+    """Wrap text with font color tag: red for up, green for down (A股惯例)."""
     if pct > 0:
-        return COLOR_RED
+        return f"<font color='red'>{text}</font>"
     elif pct < 0:
-        return COLOR_GREEN
-    return COLOR_DEFAULT
+        return f"<font color='green'>{text}</font>"
+    return text
 
 
-def change_arrow(pct):
-    """Return arrow emoji matching the color convention."""
-    if pct > 0:
-        return ARROW_UP
-    elif pct < 0:
-        return ARROW_DOWN
-    return ""
-
-
-def build_post_content(data):
-    """Build Feishu post (rich text) content with colored change values."""
+def build_card(data):
+    """Build Feishu interactive card (JSON 2.0) with colored change values."""
     mode = data.get("mode", "")
     ts = data.get("timestamp", "")
     desc = data.get("description", "")
@@ -81,36 +63,21 @@ def build_post_content(data):
     if not title:
         title = f"纳指基金估值-{mode_label}"
 
-    # Post content: list of content lines, each line is a list of elements
-    content = []
-
-    # Title line
-    content.append([
-        {"tag": "text", "text": f"📊 {title}"},
-    ])
-
-    # Timestamp
-    content.append([
-        {"tag": "text", "text": f"⏰ {ts}"},
-    ])
-
-    # Blank line
-    content.append([{"tag": "text", "text": ""}])
+    # Build markdown content lines
+    md_lines = []
+    md_lines.append(f"⏰ {ts}")
+    md_lines.append("")
 
     # Indexes section
     indexes = data.get("indexes", [])
     if indexes:
-        content.append([
-            {"tag": "text", "text": "📈 指数行情:"},
-        ])
+        md_lines.append("📈 **指数行情:**")
         for idx in indexes:
             label = idx.get("label", "")
             pct = idx.get("changePercent", 0)
             val = idx.get("value", 0)
-            color = change_color(pct)
-            arrow = change_arrow(pct)
 
-            # Only show main indexes (skip futures and composite)
+            # Skip futures and composite
             if "期货" in label or "综合" in label:
                 continue
 
@@ -120,67 +87,55 @@ def build_post_content(data):
                 val_str = f"{val:,.2f}"
 
             pct_str = f"{pct:+.2f}%"
-            line_text = f"  {label}: {val_str} ("
-            line_elements = [
-                {"tag": "text", "text": line_text},
-                {"tag": "text", "text": f"{arrow}{pct_str})", "style": [color]},
-            ]
-            content.append(line_elements)
-
-        content.append([{"tag": "text", "text": ""}])
+            # Arrow: red up / green down
+            arrow = "🔴" if pct >= 0 else "🟢"
+            colored_pct = colored(pct, f"{arrow}{pct_str}")
+            md_lines.append(f"  {label}: {val_str} ({colored_pct})")
+        md_lines.append("")
 
     # Funds section
     funds = data.get("funds", [])
     if funds:
-        content.append([
-            {"tag": "text", "text": "💰 基金估值:"},
-        ])
+        md_lines.append("💰 **基金估值:**")
         for i, fund in enumerate(funds, 1):
             name = fund.get("name", "")
             change = fund.get("estimatedChange", 0)
             is_est = fund.get("isEstimatedValuation", False)
             est_tag = "测" if is_est else ""
-            color = change_color(change)
-            arrow = change_arrow(change)
-
             change_str = f"{change:+.2f}%{est_tag}"
-            line_elements = [
-                {"tag": "text", "text": f"  {i:>2}. {name} "},
-                {"tag": "text", "text": f"{arrow}{change_str}", "style": [color]},
-            ]
-            content.append(line_elements)
+            colored_change = colored(change, change_str)
+            md_lines.append(f"  {i:>2}. {name} {colored_change}")
 
-    content.append([{"tag": "text", "text": ""}])
+    md_lines.append("")
 
     # Description
     desc_short = desc[:50] + "..." if len(desc) > 50 else desc
-    content.append([
-        {"tag": "text", "text": f"📅 {desc_short}"},
-    ])
-    content.append([
-        {"tag": "a", "text": "🔗 nsdk.top", "href": "https://nsdk.top/"},
-    ])
+    md_lines.append(f"📅 {desc_short}")
+    md_lines.append("[🔗 nsdk.top](https://nsdk.top/)")
 
-    return content
+    md_content = "\n".join(md_lines)
 
-
-def format_message(data):
-    """Build the full Feishu post message body."""
-    title_env = os.environ.get("NSDK_TITLE", "")
-    if not title_env:
-        mode = data.get("mode", "")
-        mode_label = {"intraday": "盘中", "pre-market": "盘前", "last-intraday": "昨收"}.get(mode, mode)
-        title_env = f"纳指基金估值-{mode_label}"
-
-    content = build_post_content(data)
-
-    post_body = {
-        "zh_cn": {
-            "title": title_env,
-            "content": content,
-        }
+    # Build interactive card JSON 2.0
+    card = {
+        "schema": "2.0",
+        "header": {
+            "title": {
+                "tag": "plain_text",
+                "content": title,
+            },
+            "template": "blue",
+        },
+        "body": {
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": md_content,
+                }
+            ]
+        },
     }
-    return post_body
+
+    return card
 
 
 def get_feishu_token(app_id, app_secret):
@@ -200,12 +155,12 @@ def get_feishu_token(app_id, app_secret):
     return token
 
 
-def send_feishu_post(token, open_id, post_body):
-    """Send post (rich text) message to Feishu user."""
+def send_feishu_card(token, open_id, card):
+    """Send interactive card message to Feishu user."""
     body = json.dumps({
         "receive_id": open_id,
-        "msg_type": "post",
-        "content": json.dumps(post_body),
+        "msg_type": "interactive",
+        "content": json.dumps(card),
     }).encode()
     req = urllib.request.Request(
         FEISHU_MSG_URL + "?receive_id_type=open_id",
@@ -241,16 +196,16 @@ def main():
 
     print(f"Got {len(data.get('funds', []))} funds, mode={data.get('mode')}")
 
-    # Format post message
-    post_body = format_message(data)
-    print(f"Post body: {json.dumps(post_body, ensure_ascii=False)[:200]}")
+    # Build card
+    card = build_card(data)
+    print(f"Card body: {json.dumps(card, ensure_ascii=False)[:200]}")
 
     # Send to Feishu
     print("Getting Feishu token...")
     token = get_feishu_token(app_id, app_secret)
 
-    print("Sending post message to Feishu...")
-    send_feishu_post(token, open_id, post_body)
+    print("Sending interactive card to Feishu...")
+    send_feishu_card(token, open_id, card)
 
 
 if __name__ == "__main__":
