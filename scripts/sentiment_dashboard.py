@@ -63,8 +63,26 @@ def fetch_vxn():
 
 
 def fetch_pe():
-    """Fetch PE ratio. Try GuruFocus (NDX PE), fallback to FRED Shiller PE."""
-    # Primary: GuruFocus NDX PE (works from US datacenter IPs)
+    """Fetch PE ratio. Try multpl.com (S&P 500 PE), fallback to GuruFocus (NDX PE)."""
+    # Primary: multpl.com S&P 500 PE Ratio
+    try:
+        req = urllib.request.Request(
+            "https://www.multpl.com/s-p-500-pe-ratio",
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            text = resp.read().decode()
+        # Pattern: "Current S&P 500 PE Ratio is XX.XX"
+        match = re.search(r"Current S&P 500 PE Ratio is ([\d.]+)", text, re.IGNORECASE)
+        if match:
+            return float(match.group(1)), "multpl"
+    except Exception:
+        pass
+
+    # Fallback: GuruFocus NDX PE
     try:
         req = urllib.request.Request(
             "https://www.gurufocus.com/term/PE-ratio/NDX/Nasdaq-100-PE-Ratio",
@@ -76,9 +94,8 @@ def fetch_pe():
         )
         with urllib.request.urlopen(req, timeout=20) as resp:
             text = resp.read().decode()
-        # Try multiple patterns
         for pattern in [
-            r'"peRatio"\s*:\s*"?([\d.]+)"?',
+            r'"peRatio"\s*:\s*"([\d.]+)"',
             r'PE\s+Ratio[^<]{0,200}?<strong[^>]*>\s*([\d.]+)\s*</strong>',
             r'PE\s+Ratio[^<]{0,200}?<span[^>]*>\s*([\d.]+)\s*</span>',
             r'Nasdaq 100 PE Ratio[^<]{0,200}?([\d.]+)',
@@ -86,40 +103,6 @@ def fetch_pe():
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match:
                 return float(match.group(1)), "GuruFocus"
-    except Exception:
-        pass
-
-    # Fallback 1: FRED Shiller PE (S&P 500 CAPE)
-    try:
-        from datetime import date, timedelta
-        start = (date.today() - timedelta(days=90)).strftime("%Y-%m-%d")
-        req = urllib.request.Request(
-            f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=MULTPL_SHIZUAN_PE_RATIO_MONTH&cosd={start}",
-            headers={"User-Agent": "nsdk-sentiment/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            lines = resp.read().decode().strip().split("\n")
-        for line in reversed(lines):
-            parts = line.split(",")
-            if len(parts) >= 2 and parts[1].strip() not in ("", "."):
-                return float(parts[1].strip()), f"Shiller PE ({parts[0]})"
-    except Exception:
-        pass
-
-    # Fallback 2: FRED S&P 500 trailing PE
-    try:
-        from datetime import date, timedelta
-        start = (date.today() - timedelta(days=90)).strftime("%Y-%m-%d")
-        req = urllib.request.Request(
-            f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=MULTPL_SP500_PE_RATIO_MONTH&cosd={start}",
-            headers={"User-Agent": "nsdk-sentiment/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            lines = resp.read().decode().strip().split("\n")
-        for line in reversed(lines):
-            parts = line.split(",")
-            if len(parts) >= 2 and parts[1].strip() not in ("", "."):
-                return float(parts[1].strip()), f"S&P500 PE ({parts[0]})"
     except Exception:
         pass
 
