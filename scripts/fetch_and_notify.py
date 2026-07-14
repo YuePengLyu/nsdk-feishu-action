@@ -63,21 +63,20 @@ def build_card(data):
     if not title:
         title = f"纳指基金估值-{mode_label}"
 
-    # Build markdown content lines
-    md_lines = []
-    md_lines.append(f"⏰ {ts}")
-    md_lines.append("")
+    elements = []
+
+    # Timestamp + divider
+    elements.append({"tag": "markdown", "content": f"⏰ {ts}"})
 
     # Indexes section
     indexes = data.get("indexes", [])
     if indexes:
-        md_lines.append("📈 **指数行情:**")
+        md_lines = ["📈 **指数行情:**"]
         for idx in indexes:
             label = idx.get("label", "")
             pct = idx.get("changePercent", 0)
             val = idx.get("value", 0)
 
-            # Skip futures and composite
             if "期货" in label or "综合" in label:
                 continue
 
@@ -87,16 +86,15 @@ def build_card(data):
                 val_str = f"{val:,.2f}"
 
             pct_str = f"{pct:+.2f}%"
-            # Arrow: red up / green down
             arrow = "🔴" if pct >= 0 else "🟢"
             colored_pct = colored(pct, f"{arrow}{pct_str}")
             md_lines.append(f"  {label}: {val_str} ({colored_pct})")
-        md_lines.append("")
+        elements.append({"tag": "markdown", "content": "\n".join(md_lines)})
 
-    # Funds section
+    # Funds section — single markdown block with name + colored percentage
     funds = data.get("funds", [])
     if funds:
-        md_lines.append("💰 **基金估值:**")
+        md_lines = ["💰 **基金估值:**"]
         for i, fund in enumerate(funds, 1):
             name = fund.get("name", "")
             change = fund.get("estimatedChange", 0)
@@ -105,17 +103,14 @@ def build_card(data):
             change_str = f"{change:+.2f}%{est_tag}"
             colored_change = colored(change, change_str)
             md_lines.append(f"  {i:>2}. {name} {colored_change}")
+        elements.append({"tag": "markdown", "content": "\n".join(md_lines)})
 
-    md_lines.append("")
-
-    # Description
+    # Description and link
     desc_short = desc[:50] + "..." if len(desc) > 50 else desc
-    md_lines.append(f"📅 {desc_short}")
-    md_lines.append("[🔗 nsdk.top](https://nsdk.top/)")
+    elements.append({"tag": "markdown", "content": f"📅 {desc_short}"})
+    elements.append({"tag": "markdown", "content": "[🔗 nsdk.top](https://nsdk.top/)"})
 
-    md_content = "\n".join(md_lines)
-
-    # Build interactive card JSON 2.0
+    # Build card
     card = {
         "schema": "2.0",
         "header": {
@@ -125,14 +120,7 @@ def build_card(data):
             },
             "template": "blue",
         },
-        "body": {
-            "elements": [
-                {
-                    "tag": "markdown",
-                    "content": md_content,
-                }
-            ]
-        },
+        "body": {"elements": elements},
     }
 
     return card
