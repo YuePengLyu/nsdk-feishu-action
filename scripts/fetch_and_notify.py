@@ -6,6 +6,8 @@ Environment variables:
   FEISHU_APP_ID     - Feishu app ID
   FEISHU_APP_SECRET - Feishu app secret
   FEISHU_OPEN_ID    - Target user open_id
+  NSDK_API_MODE     - "pre-market" or "last-intraday"
+  NSDK_TITLE        - Override message title
 """
 
 import json
@@ -20,6 +22,15 @@ NSDK_API = "https://nsdk.top/api/pre-market"
 NSDK_API_LAST = "https://nsdk.top/api/last-intraday"
 FEISHU_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 FEISHU_MSG_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
+
+# Colors: red for up (A股惯例), green for down
+COLOR_RED = "red"
+COLOR_GREEN = "green"
+COLOR_DEFAULT = "black"
+
+# Arrows matching colors
+ARROW_UP = "🔴"    # red circle = 涨
+ARROW_DOWN = "🟢"  # green circle = 跌
 
 
 def fetch_nsdk_data():
@@ -41,58 +52,135 @@ def fetch_nsdk_data():
     return None
 
 
-def format_message(data):
-    """Format nsdk data into a readable text message."""
-    tz_cn = timezone(timedelta(hours=8))
-    now = datetime.now(tz_cn).strftime("%Y-%m-%d %H:%M")
+def change_color(pct):
+    """Return color based on change percent: red for up, green for down (A股惯例)."""
+    if pct > 0:
+        return COLOR_RED
+    elif pct < 0:
+        return COLOR_GREEN
+    return COLOR_DEFAULT
 
+
+def change_arrow(pct):
+    """Return arrow emoji matching the color convention."""
+    if pct > 0:
+        return ARROW_UP
+    elif pct < 0:
+        return ARROW_DOWN
+    return ""
+
+
+def build_post_content(data):
+    """Build Feishu post (rich text) content with colored change values."""
     mode = data.get("mode", "")
     ts = data.get("timestamp", "")
     desc = data.get("description", "")
 
-    # Mode label
     mode_label = {"intraday": "盘中", "pre-market": "盘前", "last-intraday": "昨收"}.get(mode, mode)
-    # Allow override title via env
     title = os.environ.get("NSDK_TITLE", "")
     if not title:
         title = f"纳指基金估值-{mode_label}"
 
-    lines = [f"📊 {title}", f"⏰ {ts}", ""]
+    # Post content: list of content lines, each line is a list of elements
+    content = []
 
-    # Indexes
+    # Title line
+    content.append([
+        {"tag": "text", "text": f"📊 {title}"},
+    ])
+
+    # Timestamp
+    content.append([
+        {"tag": "text", "text": f"⏰ {ts}"},
+    ])
+
+    # Blank line
+    content.append([{"tag": "text", "text": ""}])
+
+    # Indexes section
     indexes = data.get("indexes", [])
     if indexes:
-        lines.append("📈 指数行情:")
+        content.append([
+            {"tag": "text", "text": "📈 指数行情:"},
+        ])
         for idx in indexes:
             label = idx.get("label", "")
             pct = idx.get("changePercent", 0)
             val = idx.get("value", 0)
-            arrow = "🟢" if pct >= 0 else "🔴"
-            # Only show main indexes
-            if "美元" in label:
-                lines.append(f"  {label}: {val} ({arrow}{pct:+.2f}%)")
-            elif "期货" not in label and "综合" not in label:
-                lines.append(f"  {label}: {val:,.2f} ({arrow}{pct:+.2f}%)")
-        lines.append("")
+            color = change_color(pct)
+            arrow = change_arrow(pct)
 
-    # Funds
+            # Only show main indexes (skip futures and composite)
+            if "期货" in label or "综合" in label:
+                continue
+
+            if "美元" in label:
+                val_str = f"{val}"
+            else:
+                val_str = f"{val:,.2f}"
+
+            pct_str = f"{pct:+.2f}%"
+            line_text = f"  {label}: {val_str} ("
+            line_elements = [
+                {"tag": "text", "text": line_text},
+                {"tag": "text", "text": f"{arrow}{pct_str})", "style": [color]},
+            ]
+            content.append(line_elements)
+
+        content.append([{"tag": "text", "text": ""}])
+
+    # Funds section
     funds = data.get("funds", [])
     if funds:
-        lines.append("💰 基金估值:")
+        content.append([
+            {"tag": "text", "text": "💰 基金估值:"},
+        ])
         for i, fund in enumerate(funds, 1):
             name = fund.get("name", "")
             change = fund.get("estimatedChange", 0)
-            label = fund.get("label", "")
             is_est = fund.get("isEstimatedValuation", False)
             est_tag = "测" if is_est else ""
-            arrow = "🔺" if change >= 0 else "🔻"
-            lines.append(f"  {i:>2}. {name} {arrow}{change:+.2f}%{est_tag}")
+            color = change_color(change)
+            arrow = change_arrow(change)
 
-    lines.append("")
-    lines.append(f"📅 {desc[:50]}..." if len(desc) > 50 else f"📅 {desc}")
-    lines.append(f"🔗 https://nsdk.top/")
+            change_str = f"{change:+.2f}%{est_tag}"
+            line_elements = [
+                {"tag": "text", "text": f"  {i:>2}. {name} "},
+                {"tag": "text", "text": f"{arrow}{change_str}", "style": [color]},
+            ]
+            content.append(line_elements)
 
-    return "\n".join(lines)
+    content.append([{"tag": "text", "text": ""}])
+
+    # Description
+    desc_short = desc[:50] + "..." if len(desc) > 50 else desc
+    content.append([
+        {"tag": "text", "text": f"📅 {desc_short}"},
+    ])
+    content.append([
+        {"tag": "a", "text": "🔗 nsdk.top", "href": "https://nsdk.top/"},
+    ])
+
+    return content
+
+
+def format_message(data):
+    """Build the full Feishu post message body."""
+    title_env = os.environ.get("NSDK_TITLE", "")
+    if not title_env:
+        mode = data.get("mode", "")
+        mode_label = {"intraday": "盘中", "pre-market": "盘前", "last-intraday": "昨收"}.get(mode, mode)
+        title_env = f"纳指基金估值-{mode_label}"
+
+    content = build_post_content(data)
+
+    post_body = {
+        "zh_cn": {
+            "title": title_env,
+            "content": content,
+        }
+    }
+    return post_body
 
 
 def get_feishu_token(app_id, app_secret):
@@ -112,12 +200,12 @@ def get_feishu_token(app_id, app_secret):
     return token
 
 
-def send_feishu_message(token, open_id, text):
-    """Send text message to Feishu user."""
+def send_feishu_post(token, open_id, post_body):
+    """Send post (rich text) message to Feishu user."""
     body = json.dumps({
         "receive_id": open_id,
-        "msg_type": "text",
-        "content": json.dumps({"text": text}),
+        "msg_type": "post",
+        "content": json.dumps(post_body),
     }).encode()
     req = urllib.request.Request(
         FEISHU_MSG_URL + "?receive_id_type=open_id",
@@ -153,16 +241,16 @@ def main():
 
     print(f"Got {len(data.get('funds', []))} funds, mode={data.get('mode')}")
 
-    # Format message
-    text = format_message(data)
-    print(f"Message length: {len(text)} chars")
+    # Format post message
+    post_body = format_message(data)
+    print(f"Post body: {json.dumps(post_body, ensure_ascii=False)[:200]}")
 
     # Send to Feishu
     print("Getting Feishu token...")
     token = get_feishu_token(app_id, app_secret)
 
-    print("Sending message to Feishu...")
-    send_feishu_message(token, open_id, text)
+    print("Sending post message to Feishu...")
+    send_feishu_post(token, open_id, post_body)
 
 
 if __name__ == "__main__":
